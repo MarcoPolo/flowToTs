@@ -9,9 +9,14 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/jscodeshift": "^0.6.0"
+    "@types/jest": "^24.0.9",
+    "@types/jscodeshift": "^0.6.0",
+    "@types/node": "^11.10.4",
+    "typescript": "^3.3.3333"
   },
   "dependencies": {
-    "jscodeshift": "^0.6.3"
+    "jest": "^24.1.0",
+    "jscodeshift": "^0.6.3",
+    "ts-jest": "^24.0.0"
   }
 }
