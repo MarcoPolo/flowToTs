@@ -21,12 +21,15 @@ import {
   OpaqueType,
   ObjectTypeProperty,
   ObjectTypeIndexer,
-  ObjectTypeSpreadProperty
+  ObjectTypeSpreadProperty,
+  QualifiedTypeIdentifier,
+  GenericTypeAnnotation
 } from "jscodeshift";
 import { Node } from "ast-types/gen/nodes";
 import { FlowTypeKind, TSTypeKind } from "ast-types/gen/kinds";
 import { Collection } from "jscodeshift/src/Collection";
 import { NodePath } from "recast";
+import { jsxClosingElement } from "@babel/types";
 
 const lowerCaseFirst = (s: string) => s.replace(/^(.)/, m => m.toLowerCase());
 
@@ -38,11 +41,10 @@ function convertPropertiesToTsProperties(
     const tsType = convertToTSType(j, p.value);
     if (tsType) {
       const typeAnnotation = j.tsTypeAnnotation(tsType);
-
-      const key = j.identifier((p.key as Identifier).name);
       return j.tsPropertySignature.from({
-        key,
+        key: p.key,
         typeAnnotation,
+        optional: p.optional,
         readonly: !!p.variance && (p.variance as any).kind === "plus"
       });
     }
@@ -71,10 +73,30 @@ function convertPropertiesToTsProperties(
   }
 }
 
+function convertQualifiedIdentifier(
+  j: JSCodeshift,
+  qid: QualifiedTypeIdentifier
+) {
+  const left =
+    qid.qualification.type === "QualifiedTypeIdentifier"
+      ? convertQualifiedIdentifier(j, qid.qualification)
+      : qid.qualification;
+  return j.tsQualifiedName.from({
+    right: qid.id,
+    left,
+    comments: qid.comments || null
+  });
+}
+
 function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
+  if ((type as TSType).type.startsWith("TS")) {
+    return type as any;
+  }
   switch (type.type) {
     case "StringTypeAnnotation":
       return j.tsStringKeyword();
+    case "BooleanTypeAnnotation":
+      return j.tsBooleanKeyword();
     case "NumberTypeAnnotation":
       return j.tsNumberKeyword();
     case "NumberLiteralTypeAnnotation":
@@ -89,6 +111,30 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
     case "VoidTypeAnnotation":
       // return jts.tsUnionType([jts.tsNullKeyword(), jts.tsVoidKeyword()]);
       return j.tsNullKeyword();
+    case "ArrayTypeAnnotation":
+      return j.tsArrayType(convertToTSType(j, type.elementType));
+    case "EmptyTypeAnnotation":
+      return j.tsNeverKeyword();
+    case "ExistsTypeAnnotation":
+      return j.tsUnknownKeyword();
+    case "TypeofTypeAnnotation":
+      if (type.argument.type === "GenericTypeAnnotation") {
+        const id = type.argument.id;
+        if (id.type === "QualifiedTypeIdentifier") {
+          return j.tsTypeQuery(convertQualifiedIdentifier(j, id));
+        } else {
+          return j.tsTypeQuery(id);
+        }
+      }
+      console.warn(
+        `Converting flow typeof. Expected Generic type. Got something else. dropping the typeof`,
+        `got type ${type.argument.type} with keys: ${Object.keys(
+          type.argument
+        )}`
+      );
+      return convertToTSType(j, type.argument);
+    case "TupleTypeAnnotation":
+      return j.tsTupleType(type.types.map(t => convertToTSType(j, t)));
     case "NullableTypeAnnotation":
       let innerType = convertToTSType(j, type.typeAnnotation);
       return j.tsUnionType([innerType, j.tsNullKeyword()]);
@@ -137,6 +183,18 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
               objectType: t
             });
           }
+          case "$ReadOnly": {
+            let t = convertToTSType(j, type.typeParameters.params[0]);
+            if (t.type === "TSTypeLiteral") {
+              t.members
+                .filter(m => "TSPropertySignature")
+                .forEach((m: TSPropertySignature) => {
+                  m.readonly = true;
+                });
+            }
+
+            return t;
+          }
           case "$Call": {
             const t = convertToTSType(j, type.typeParameters.params[0]);
             return j.tsTypeReference.from({
@@ -155,14 +213,41 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
           .map(t => convertToTSType(j, t))
           .filter(t => !!t);
       }
-      if (id.type === "Identifier") {
-        return j.tsTypeReference(
-          j.identifier(id.name),
-          tsTypeArgs ? j.tsTypeParameterInstantiation(tsTypeArgs) : null
+      try {
+        if (id.type === "Identifier") {
+          return j.tsTypeReference(
+            j.identifier(id.name),
+            tsTypeArgs ? j.tsTypeParameterInstantiation(tsTypeArgs) : null
+          );
+        }
+      } catch (e) {
+        throw Error(
+          `Unhandled Identifier type ${type.type}, id: ${id.type}
+         at ${JSON.stringify(type.loc && type.loc.start)}`
         );
       }
 
-      throw Error("Unhandled Identifier type");
+      if (id.type === "QualifiedTypeIdentifier") {
+        return j.tsTypeReference.from({
+          typeName: convertQualifiedIdentifier(j, id)
+        });
+      }
+
+      throw Error(
+        `Unhandled Identifier type ${type.type}, id: ${id.type}
+         at ${JSON.stringify(type.loc && type.loc.start)}`
+      );
+    case "UnionTypeAnnotation": {
+      let types = type.types.map(t => convertToTSType(j, t));
+      return j.tsUnionType(types);
+    }
+    case "IntersectionTypeAnnotation": {
+      let types = type.types.map(t => convertToTSType(j, t));
+      return j.tsIntersectionType(types);
+    }
+    case "AnyTypeAnnotation": {
+      return j.tsAnyKeyword();
+    }
     case "ObjectTypeAnnotation":
       const spreads = type.properties
         .filter(p => p.type === "ObjectTypeSpreadProperty")
@@ -192,7 +277,11 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
       tsFn.typeAnnotation = tsReturn;
       return tsFn;
   }
-  throw new Error(`Unhandled case for ${type.type}`);
+  throw new Error(
+    `Unhandled case for ${type.type} at ${JSON.stringify(
+      type.loc && type.loc.start
+    )}`
+  );
 }
 
 function convertTypeParameter(
@@ -239,7 +328,6 @@ export function transformIdentifiers(
       let tsType = convertToTSType(j, path.node.typeAnnotation
         .typeAnnotation as FlowTypeKind);
       if (tsType) {
-        let tsTypeAnnotation = j.tsTypeAnnotation(tsType);
         path.node.typeAnnotation.typeAnnotation = tsType;
       }
     }
@@ -262,6 +350,18 @@ export function transformImports(
     let node = path.node as any;
     if (node.importKind === "type") {
       path.parentPath.node.importKind = null;
+    }
+  });
+}
+
+export function transformExports(
+  collection: Collection<any>,
+  j: JSCodeshift,
+  options?: Options
+) {
+  collection.find(j.ExportNamedDeclaration).forEach(path => {
+    if ((path.node as any).exportKind === "type") {
+      (path.node as any).exportKind = null;
     }
   });
 }
@@ -356,23 +456,22 @@ const transformer: Transform = function(
   options: Options
 ): string | null {
   const j = api.jscodeshift.withParser("flow");
-  const jts = api.jscodeshift.withParser("ts");
+  const collection = j(file.source);
 
-  let transformedSource = j(file.source)
-    .find(j.Identifier)
-    .forEach(path => {
-      if (path.node.typeAnnotation) {
-        let tsType = convertToTSType(j, path.node.typeAnnotation
-          .typeAnnotation as FlowTypeKind);
-        if (tsType) {
-          let tsTypeAnnotation = j.tsTypeAnnotation(tsType);
-          path.node.typeAnnotation.typeAnnotation = tsType;
-        }
-      }
-    })
-    .toSource();
+  const transformations = [
+    transformFunctionTypes,
+    transformIdentifiers,
+    transformImports,
+    transformInterfaces,
+    transformTypeCastings,
+    transformTypeAliases,
+    transformExports
+  ];
 
-  transformedSource = transformedSource.replace(/^\/\/ @flow.*\n/, "");
+  transformations.forEach(transformation => transformation(collection, j));
+
+  let transformedSource = collection.toSource();
+  transformedSource = transformedSource.replace(/^\/\/ ?@flow.*\n/, "");
 
   return transformedSource;
 };

@@ -1,10 +1,11 @@
 import {
   transformImports,
   transformFunctionTypes,
-  transformIdentifiers,
   transformTypeAliases,
   transformInterfaces,
-  transformTypeCastings
+  transformTypeCastings,
+  transformExports,
+  transformIdentifiers
 } from "../flowToTs";
 import * as JSCodeShift from "JSCodeShift";
 jest.autoMockOff();
@@ -53,6 +54,15 @@ describe("Functions", () => {
   it("Preserves arg names", () => {
     const input = "type F = (coolArg: A, B) => C";
     const out = "type F = (coolArg: A, b: B) => C;";
+    const collection = j(input);
+
+    transformFunctionTypes(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Preserves optional args", () => {
+    const input = "type F = (coolArg: A, optional?: B) => C";
+    const out = "type F = (coolArg: A, optional?: B) => C;";
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
@@ -228,6 +238,152 @@ describe("Can handle common special Flow Types", () => {
     const collection = j(input);
 
     transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle any", () => {
+    const input = "type B = any;";
+    const out = "type B = any;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+});
+
+describe("Export type works", () => {
+  it("Transforms export types properly", () => {
+    const input = "export type F = {|foo: boolean|}";
+    const out = "export type F = {\n  foo: boolean\n};";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    transformExports(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+});
+
+describe("Qualified Types", () => {
+  it("Transforms qualified types properly", () => {
+    const input =
+      "type Foo = {messages: Array<RPCTypesGregor.OutOfBandMessage>}";
+    const out =
+      "type Foo = {\n  messages: Array<RPCTypesGregor.OutOfBandMessage>\n};";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+});
+
+describe("Union Types and Intersection", () => {
+  it("Transforms Union Types", () => {
+    const input = "type Foo = A | B";
+    const out = "type Foo = A | B;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms Intersection Types", () => {
+    const input = "type Foo = A & B";
+    const out = "type Foo = A & B;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+});
+
+describe("Transforms types", () => {
+  it("Doesn't choke on types it's already visited", () => {
+    const input = "export type Foo = boolean";
+    const out = "export type Foo = boolean;";
+    const collection = j(input);
+    [
+      transformFunctionTypes,
+      transformIdentifiers,
+      transformImports,
+      transformInterfaces,
+      transformTypeCastings,
+      transformTypeAliases,
+      transformExports
+    ].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms tuples", () => {
+    const input = "export type Foo = [boolean, A]";
+    const out = "export type Foo = [boolean, A];";
+    const collection = j(input);
+    [transformExports, transformTypeAliases].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms Array types", () => {
+    const input = "export type Foo = boolean[]";
+    const out = "export type Foo = boolean[];";
+    const collection = j(input);
+    [transformExports, transformTypeAliases].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms Existential", () => {
+    const input = "export type Foo = Bar<*>;";
+    const out = "export type Foo = Bar<unknown>;";
+    const collection = j(input);
+    [transformExports, transformTypeAliases].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms Readonly", () => {
+    const input = "type Foo = $ReadOnly<{foo: number, bar: string};";
+    const out =
+      "type Foo = {\n  readonly foo: number,\n  readonly bar: string\n};";
+    const collection = j(input);
+    [transformTypeAliases].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms empty", () => {
+    const input = "type Foo = {foo?: empty, bar: number};";
+    const out = "type Foo = { foo?: never, bar: number};";
+    const collection = j(input);
+    [transformTypeAliases].forEach(t => t(collection, j));
+
+    expect(
+      collection
+        .toSource()
+        .replace(/\n/g, "")
+        .replace(/\ +/g, " ")
+    ).toEqual(out);
+  });
+});
+
+describe("JSX", () => {
+  it("Works with JSX", () => {
+    const input = "const A = (props: {foo: number}) => <p>hi {props.foo}</p>";
+    const out =
+      "const A = (props: {\n  foo: number\n}) => <p>hi {props.foo}</p>";
+    const collection = j(input);
+    [transformIdentifiers].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Works with Composite Components", () => {
+    const input = "const A = (props: {foo: number}) => <B foo={props.foo} />";
+    const out =
+      "const A = (props: {\n  foo: number\n}) => <B foo={props.foo} />";
+    const collection = j(input);
+    [transformIdentifiers].forEach(t => t(collection, j));
+
     expect(collection.toSource()).toEqual(out);
   });
 });
