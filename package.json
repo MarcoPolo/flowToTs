@@ -4,7 +4,10 @@
   "description": "Transformer to convert flow files to typescript",
   "main": "",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "transformFlowToTS": "./node_modules/jscodeshift/bin/jscodeshift.js -t src/transformers/flowToTs.ts --transformFileIn=\".js$\" --transformFileOut=\".ts\"",
+    "transformFlowToTSX": "./node_modules/jscodeshift/bin/jscodeshift.js -t src/transformers/flowToTs.ts --transformFileIn=\".js$\" --transformFileOut=\".tsx\"",
+    "transformFlowDefToDTS": "./node_modules/jscodeshift/bin/jscodeshift.js -t src/transformers/flowToTs.ts --transformFileIn=\".js.flow$\" --transformFileOut=\".d.ts\" --extensions=\"flow\""
   },
   "author": "marco",
   "license": "ISC",
@@ -16,7 +19,7 @@
   },
   "dependencies": {
     "jest": "^24.1.0",
-    "jscodeshift": "^0.6.3",
+    "jscodeshift": "marcopolo/jscodeshift#support-renaming",
     "ts-jest": "^24.0.0"
   }
 }
