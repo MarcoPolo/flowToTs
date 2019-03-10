@@ -23,10 +23,15 @@ import {
   ObjectTypeIndexer,
   ObjectTypeSpreadProperty,
   QualifiedTypeIdentifier,
-  GenericTypeAnnotation
+  GenericTypeAnnotation,
+  TypeAnnotation,
+  TypeParameterDeclaration,
+  TSTypeParameterDeclaration,
+  FunctionTypeAnnotation,
+  RestElement
 } from "jscodeshift";
 import { Node } from "ast-types/gen/nodes";
-import { FlowTypeKind, TSTypeKind } from "ast-types/gen/kinds";
+import { FlowTypeKind, TSTypeKind, PatternKind } from "ast-types/gen/kinds";
 import { Collection } from "jscodeshift/src/Collection";
 import { NodePath } from "recast";
 import { jsxClosingElement } from "@babel/types";
@@ -140,6 +145,25 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
       return j.tsUnionType([innerType, j.tsNullKeyword()]);
     case "GenericTypeAnnotation":
       let id = type.id;
+      if (id.type === "QualifiedTypeIdentifier") {
+        if (
+          id.qualification.type === "Identifier" &&
+          id.qualification.name === "React"
+        ) {
+          if (id.id.name === "Node") {
+            let T = convertToTSType(j, type.typeParameters.params[0]);
+            return j.tsTypeReference.from({
+              typeName: j.tsQualifiedName.from({
+                left: id.qualification,
+                right: j.identifier("ElementType")
+              }),
+              typeParameters: j.tsTypeParameterInstantiation.from({
+                params: [T]
+              })
+            });
+          }
+        }
+      }
       if (id.type === "Identifier") {
         // Handle special cases
         switch (id.name) {
@@ -161,7 +185,7 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
               objectType: obj
             });
           }
-          case "$REST":
+          case "$Rest":
           case "$Diff": {
             let T = convertToTSType(j, type.typeParameters.params[0]);
             let U = convertToTSType(j, type.typeParameters.params[1]);
@@ -169,6 +193,15 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
               typeName: j.identifier("Exclude"),
               typeParameters: j.tsTypeParameterInstantiation.from({
                 params: [T, U]
+              })
+            });
+          }
+          case "$ReadOnlyArray": {
+            let T = convertToTSType(j, type.typeParameters.params[0]);
+            return j.tsTypeReference.from({
+              typeName: j.identifier("ReadOnlyArray"),
+              typeParameters: j.tsTypeParameterInstantiation.from({
+                params: [T]
               })
             });
           }
@@ -271,11 +304,15 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
 
       return tsType;
     case "FunctionTypeAnnotation":
-      const tsParams = type.params.map(t => convertFunctionTypeParam(j, t));
+      const parameters = convertFunctionParams(j, type);
       const tsReturn = j.tsTypeAnnotation(convertToTSType(j, type.returnType));
-      const tsFn = j.tsFunctionType(tsParams);
-      tsFn.typeAnnotation = tsReturn;
-      return tsFn;
+      const typeParameters = convertTypeParameters(j, type.typeParameters);
+
+      return j.tsFunctionType.from({
+        parameters,
+        typeAnnotation: tsReturn,
+        typeParameters
+      });
   }
   throw new Error(
     `Unhandled case for ${type.type} at ${JSON.stringify(
@@ -284,17 +321,51 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
   );
 }
 
+function convertTypeAnnotation(
+  j: JSCodeshift,
+  t: TypeAnnotation
+): TSTypeAnnotation {
+  return j.tsTypeAnnotation.from({
+    typeAnnotation: convertToTSType(j, t.typeAnnotation)
+  });
+}
+
 function convertTypeParameter(
   j: JSCodeshift,
   parameter: TypeParameter
 ): TSTypeParameter {
-  return j.tsTypeParameter(
-    parameter.name,
-    parameter.bound && convertToTSType(j, parameter.bound.typeAnnotation)
-  );
+  return j.tsTypeParameter.from({
+    name: parameter.name,
+    default: (parameter as any).default
+      ? convertToTSType(j, (parameter as any).default)
+      : null,
+    constraint: parameter.bound
+      ? convertToTSType(j, parameter.bound.typeAnnotation)
+      : null
+  });
 }
 
-function convertFunctionTypeParam(
+function convertTypeParameters(
+  j: JSCodeshift,
+  typeParams: TypeParameterDeclaration
+): TSTypeParameterDeclaration | null {
+  const params =
+    typeParams && typeParams.params.map(p => convertTypeParameter(j, p));
+  return params ? j.tsTypeParameterDeclaration.from({ params }) : null;
+}
+
+function convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
+  if (rest) {
+    return j.restElement.from({
+      argument: rest.name,
+      typeAnnotation: j.tsTypeAnnotation(
+        convertToTSType(j, rest.typeAnnotation)
+      )
+    });
+  }
+}
+
+function convertFunctionParam(
   j: JSCodeshift,
   typeParam: FunctionTypeParam
 ): Identifier {
@@ -315,6 +386,18 @@ function convertFunctionTypeParam(
   tsParam.typeAnnotation = typeAnnotation;
   tsParam.optional = optional;
   return tsParam;
+}
+
+type TSFParam = Identifier | RestElement;
+function convertFunctionParams(
+  j: JSCodeshift,
+  f: FunctionTypeAnnotation
+): TSFParam[] {
+  const params: TSFParam[] = f.params.map(p => convertFunctionParam(j, p));
+  if (f.rest) {
+    params.push(convertRestParams(j, f.rest));
+  }
+  return params;
 }
 
 // Mutates collection
@@ -366,6 +449,16 @@ export function transformExports(
   });
 }
 
+export function transfromTypeAnnotations(
+  collection: Collection<any>,
+  j: JSCodeshift,
+  options?: Options
+) {
+  collection.find(j.TypeAnnotation).forEach(path => {
+    j(path).replaceWith(convertTypeAnnotation(j, path.node));
+  });
+}
+
 export function transformFunctionTypes(
   collection: Collection<any>,
   j: JSCodeshift,
@@ -387,14 +480,12 @@ export function transformTypeAliases(
     const node = path.node;
     const flowType = node.type === "TypeAlias" ? node.right : node.impltype;
     const tsTypeAnnotation = convertToTSType(j, flowType);
-    const tsTypeParams = node.typeParameters
-      ? node.typeParameters.params.map(param => convertTypeParameter(j, param))
-      : null;
+    const typeParameters = convertTypeParameters(j, node.typeParameters);
 
     const typeAlias = j.tsTypeAliasDeclaration.from({
       id: node.id,
       typeAnnotation: tsTypeAnnotation,
-      typeParameters: tsTypeParams && j.tsTypeParameterDeclaration(tsTypeParams)
+      typeParameters
     });
 
     j(path).replaceWith(typeAlias);
@@ -416,11 +507,7 @@ export function transformInterfaces(
       )
     );
     const id = path.node.id;
-    const typeParameters = path.node.typeParameters
-      ? j.tsTypeParameterDeclaration(
-          path.node.typeParameters.params.map(p => convertTypeParameter(j, p))
-        )
-      : null;
+    const typeParameters = convertTypeParameters(j, path.node.typeParameters);
 
     const tsInterface = j.tsInterfaceDeclaration.from({
       id,
@@ -450,6 +537,92 @@ export function transformTypeCastings(
   });
 }
 
+export function transformDeclaration(
+  collection: Collection<any>,
+  j: JSCodeshift,
+  options?: Options
+) {
+  collection.find(j.DeclareVariable).forEach(path => {
+    const id = path.node.id;
+    const declaration = j.variableDeclaration.from({
+      declarations: [
+        j.variableDeclarator.from({
+          id,
+          init: null
+        })
+      ],
+      kind: "var"
+    });
+
+    // TODO bug with recast type
+    (declaration as any).declare = true;
+    j(path).replaceWith(declaration);
+  });
+  collection.find(j.DeclareFunction).forEach(path => {
+    if (
+      path.node.id.typeAnnotation.typeAnnotation.type !==
+      "FunctionTypeAnnotation"
+    ) {
+      throw Error(
+        `Unhandled declaration ${path.node.type} at ${JSON.stringify(
+          path.node.loc.start
+        )}`
+      );
+    }
+    const dNode = path.node;
+    const functionName = dNode.id.name;
+    const flowFunctionType: FunctionTypeAnnotation = dNode.id.typeAnnotation
+      .typeAnnotation as FunctionTypeAnnotation;
+    const typeParameters = convertTypeParameters(
+      j,
+      flowFunctionType.typeParameters
+    );
+    const params: PatternKind[] = convertFunctionParams(j, flowFunctionType);
+
+    const returnType = convertToTSType(j, flowFunctionType.returnType);
+
+    const declaration = j.tsDeclareFunction.from({
+      declare: true,
+      id: j.identifier(functionName),
+      params,
+      returnType: returnType ? j.tsTypeAnnotation(returnType) : null,
+      typeParameters
+    });
+    j(path).replaceWith(declaration);
+  });
+  collection.find(j.DeclareExportDeclaration).forEach(path => {
+    switch (path.node.declaration.type as any) {
+      case "TSDeclareFunction":
+      case "VariableDeclaration":
+        j(path).replaceWith(
+          j.exportNamedDeclaration.from({
+            declaration: path.node.declaration as any
+          })
+        );
+        return;
+      default:
+        throw Error(
+          `Unhandled declaration ${
+            path.node.declaration.type
+          } at ${JSON.stringify(path.node.loc && path.node.loc.start)}`
+        );
+    }
+  });
+}
+
+export function transformTypeParamInstantiation(
+  collection: Collection<any>,
+  j: JSCodeshift,
+  options?: Options
+) {
+  collection.find(j.TypeParameterInstantiation).forEach(path => {
+    j(path).replaceWith(path => {
+      const params = path.node.params.map(t => convertToTSType(j, t));
+      return j.tsTypeParameterInstantiation(params);
+    });
+  });
+}
+
 const transformer: Transform = function(
   file: FileInfo,
   api: API,
@@ -459,13 +632,16 @@ const transformer: Transform = function(
   const collection = j(file.source);
 
   const transformations = [
+    transformDeclaration,
+    transfromTypeAnnotations,
     transformFunctionTypes,
     transformIdentifiers,
     transformImports,
     transformInterfaces,
     transformTypeCastings,
     transformTypeAliases,
-    transformExports
+    transformExports,
+    transformTypeParamInstantiation
   ];
 
   transformations.forEach(transformation => transformation(collection, j));

@@ -5,7 +5,10 @@ import {
   transformInterfaces,
   transformTypeCastings,
   transformExports,
-  transformIdentifiers
+  transformIdentifiers,
+  transfromTypeAnnotations,
+  transformDeclaration,
+  transformTypeParamInstantiation
 } from "../flowToTs";
 import * as JSCodeShift from "JSCodeShift";
 jest.autoMockOff();
@@ -42,6 +45,16 @@ describe("Transform Import statements", () => {
 });
 
 describe("Functions", () => {
+  it("Transforms extends in generics", () => {
+    const input = "type First<T: {}> = (a: Array<T>) => T";
+    const out = "type First<T extends {}> = (a: Array<T>) => T;";
+    const collection = j(input);
+
+    transformFunctionTypes(collection, j);
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
   it("Transforms function types", () => {
     const input = "type F = (A, B) => C";
     const out = "type F = (a: A, b: B) => C;";
@@ -65,6 +78,25 @@ describe("Functions", () => {
     const out = "type F = (coolArg: A, optional?: B) => C;";
     const collection = j(input);
 
+    transformFunctionTypes(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms maybe types", () => {
+    const input = "type F = (coolArg: A, optional?: B) => ?C";
+    const out = "type F = (coolArg: A, optional?: B) => C | null;";
+    const collection = j(input);
+
+    transformFunctionTypes(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms nested maybe types", () => {
+    const input = "const c = (foo: number): ?Foo<n> => 'asdf'";
+    const out = "const c = (foo: number): Foo<n> | null => 'asdf'";
+    const collection = j(input);
+
+    transfromTypeAnnotations(collection, j);
     transformFunctionTypes(collection, j);
     expect(collection.toSource()).toEqual(out);
   });
@@ -187,9 +219,36 @@ describe("Can handle common special Flow Types", () => {
     expect(collection.toSource()).toEqual(out);
   });
 
+  it("Transforms React.Node", () => {
+    const input = "type B = React.Node<Props>";
+    const out = "type B = React.ElementType<Props>;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
   it("Can handle $Keys", () => {
     const input = "type B = $Keys<A>";
     const out = "type B = keyof A;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle $ReadOnlyArray", () => {
+    const input = "type B = $ReadOnlyArray<A>";
+    const out = "type B = ReadOnlyArray<A>;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle $Diff", () => {
+    const input = "type B = $Diff<A, C>";
+    const out = "type B = Exclude<A, C>;";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
@@ -383,6 +442,41 @@ describe("JSX", () => {
       "const A = (props: {\n  foo: number\n}) => <B foo={props.foo} />";
     const collection = j(input);
     [transformIdentifiers].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+});
+
+describe("Declarations", () => {
+  it("Transforms export declarations", () => {
+    const input = "declare export var mobileStyles: {}";
+    const out = "export declare var mobileStyles: {};";
+    const collection = j(input);
+    [transformDeclaration].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms export function declarations", () => {
+    const input =
+      "declare export function styled<T>(Component: T): (...styles: Array<any>) => T";
+    const out =
+      "export declare function styled<T>(Component: T): (...styles: Array<any>) => T;";
+    const collection = j(input);
+    [transformDeclaration].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+});
+
+describe("Classes", () => {
+  it("Transforms classes", () => {
+    const input =
+      "class OverlayParent extends React.Component<$Diff<T, Props>, State> {}";
+    const out =
+      "class OverlayParent extends React.Component<Exclude<T, Props>, State> {}";
+    const collection = j(input);
+    [transformTypeParamInstantiation].forEach(t => t(collection, j));
 
     expect(collection.toSource()).toEqual(out);
   });
