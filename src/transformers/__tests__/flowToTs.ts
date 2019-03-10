@@ -158,8 +158,8 @@ describe("Exact types", () => {
   });
 
   it("Transforms Indexer", () => {
-    const input = "type A<K> = {[K]: number}";
-    const out = "type A<K> = {\n  [k: K]: number\n};";
+    const input = "type A<K> = {[key: Foo]: number}";
+    const out = "type A<K> = {\n  [K in Foo]: number;\n};";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
@@ -210,6 +210,15 @@ describe("Transforms castings", () => {
 });
 
 describe("Can handle common special Flow Types", () => {
+  it("Transforms indexing", () => {
+    const input = "type F = {[key: ServiceIdWithContact]: string}";
+    const out = "type F = {\n  [K in ServiceIdWithContact]: string;\n};";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
   it("Can handle $Exact", () => {
     const input = "type B = $Exact<A>";
     const out = "type B = A;";
@@ -239,7 +248,7 @@ describe("Can handle common special Flow Types", () => {
 
   it("Can handle $ReadOnlyArray", () => {
     const input = "type B = $ReadOnlyArray<A>";
-    const out = "type B = ReadOnlyArray<A>;";
+    const out = "type B = ReadonlyArray<A>;";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
@@ -314,6 +323,18 @@ describe("Export type works", () => {
   it("Transforms export types properly", () => {
     const input = "export type F = {|foo: boolean|}";
     const out = "export type F = {\n  foo: boolean\n};";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    transformExports(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms exports using Qualified identifiers", () => {
+    const input =
+      "export type SearchKey = I.List<number | Array<number> | Foo.Bar.Baz<number>>";
+    const out =
+      "export type SearchKey = I.List<number | Array<number> | Foo.Bar.Baz<number>>;";
     const collection = j(input);
 
     transformTypeAliases(collection, j);

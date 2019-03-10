@@ -28,15 +28,37 @@ import {
   TypeParameterDeclaration,
   TSTypeParameterDeclaration,
   FunctionTypeAnnotation,
-  RestElement
+  RestElement,
+  TSMappedType,
+  TSQualifiedName
 } from "jscodeshift";
 import { Node } from "ast-types/gen/nodes";
-import { FlowTypeKind, TSTypeKind, PatternKind } from "ast-types/gen/kinds";
+import {
+  FlowTypeKind,
+  TSTypeKind,
+  PatternKind,
+  QualifiedTypeIdentifierKind
+} from "ast-types/gen/kinds";
 import { Collection } from "jscodeshift/src/Collection";
 import { NodePath } from "recast";
 import { jsxClosingElement } from "@babel/types";
 
 const lowerCaseFirst = (s: string) => s.replace(/^(.)/, m => m.toLowerCase());
+
+function convertIndexedToMappedType(
+  j: JSCodeshift,
+  t: ObjectTypeIndexer
+): TSMappedType {
+  const constraint = convertToTSType(j, t.key);
+  const typeParameter = j.tsTypeParameter.from({
+    constraint,
+    name: "K"
+  });
+  return j.tsMappedType.from({
+    typeParameter,
+    typeAnnotation: convertToTSType(j, t.value)
+  });
+}
 
 function convertPropertiesToTsProperties(
   j: JSCodeshift,
@@ -199,7 +221,7 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
           case "$ReadOnlyArray": {
             let T = convertToTSType(j, type.typeParameters.params[0]);
             return j.tsTypeReference.from({
-              typeName: j.identifier("ReadOnlyArray"),
+              typeName: j.identifier("ReadonlyArray"),
               typeParameters: j.tsTypeParameterInstantiation.from({
                 params: [T]
               })
@@ -242,34 +264,19 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
       let typeArgs = type.typeParameters;
       let tsTypeArgs = null;
       if (typeArgs && typeArgs.params.length) {
-        tsTypeArgs = typeArgs.params
-          .map(t => convertToTSType(j, t))
-          .filter(t => !!t);
-      }
-      try {
-        if (id.type === "Identifier") {
-          return j.tsTypeReference(
-            j.identifier(id.name),
-            tsTypeArgs ? j.tsTypeParameterInstantiation(tsTypeArgs) : null
-          );
-        }
-      } catch (e) {
-        throw Error(
-          `Unhandled Identifier type ${type.type}, id: ${id.type}
-         at ${JSON.stringify(type.loc && type.loc.start)}`
+        tsTypeArgs = j.tsTypeParameterInstantiation(
+          typeArgs.params.map(t => convertToTSType(j, t)).filter(t => !!t)
         );
       }
-
-      if (id.type === "QualifiedTypeIdentifier") {
-        return j.tsTypeReference.from({
-          typeName: convertQualifiedIdentifier(j, id)
-        });
-      }
-
-      throw Error(
-        `Unhandled Identifier type ${type.type}, id: ${id.type}
-         at ${JSON.stringify(type.loc && type.loc.start)}`
-      );
+      let newId =
+        id.type === "QualifiedTypeIdentifier"
+          ? convertQualifiedIdentifier(j, id)
+          : id;
+      return j.tsTypeReference.from({
+        comments: type.comments || null,
+        typeName: newId,
+        typeParameters: tsTypeArgs
+      });
     case "UnionTypeAnnotation": {
       let types = type.types.map(t => convertToTSType(j, t));
       return j.tsUnionType(types);
@@ -282,6 +289,13 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
       return j.tsAnyKeyword();
     }
     case "ObjectTypeAnnotation":
+      if (type.indexers && type.indexers.length) {
+        if (type.indexers.length > 1) {
+          console.warn("Not handling more than 1 indexer in mapped type");
+        }
+        return convertIndexedToMappedType(j, type.indexers[0]);
+      }
+
       const spreads = type.properties
         .filter(p => p.type === "ObjectTypeSpreadProperty")
         .map((p: ObjectTypeSpreadProperty) => convertToTSType(j, p.argument));

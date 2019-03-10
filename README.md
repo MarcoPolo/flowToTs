@@ -4,9 +4,11 @@ Converts flow files to ts using jscodeshift
 
 # Usage
 
+I recommend running these with a --dry flag first to see if your code will cause any errors during transformation.
+
 `npm run transformFlowToTSX -- PATH`
 
-Will convert all .js files into .tsx files in a given `PATH`.
+(recommended) Will convert all .js files into .tsx files in a given `PATH`.
 
 `npm run transformFlowToTS -- PATH`
 
