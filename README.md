@@ -17,5 +17,3 @@ Will convert all .js files into .ts files in a given `PATH`.
 `npm run transformFlowDefToDTS -- PATH`
 
 Will convert all .js.flow files into .d.ts files in a given `PATH`.
-
-If you want to run with try mode you
