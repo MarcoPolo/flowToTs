@@ -8,7 +8,10 @@ import {
   transformIdentifiers,
   transfromTypeAnnotations,
   transformDeclaration,
-  transformTypeParamInstantiation
+  transformTypeParamInstantiation,
+  allTransformations,
+  transformNullCoalescing,
+  transformTypeParameters
 } from "../flowToTs";
 import * as JSCodeShift from "JSCodeShift";
 jest.autoMockOff();
@@ -61,6 +64,16 @@ describe("Functions", () => {
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms function generics", () => {
+    const input = "function foo<T: B & {}>() {}";
+    const out = "function foo<T extends B & {}>() {}";
+    const collection = j(input);
+
+    transformFunctionTypes(collection, j);
+    transformTypeParameters(collection, j);
     expect(collection.toSource()).toEqual(out);
   });
 
@@ -255,9 +268,54 @@ describe("Can handle common special Flow Types", () => {
     expect(collection.toSource()).toEqual(out);
   });
 
+  it("Transforms TimeoutID", () => {
+    const input = "type B = TimeoutID";
+    const out = "type B = number;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms IntervalID", () => {
+    const input = "type B = IntervalID";
+    const out = "type B = number;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
   it("Can handle $Diff", () => {
     const input = "type B = $Diff<A, C>";
     const out = "type B = Exclude<A, C>;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle SyntheticEvent", () => {
+    const input = "type B = SyntheticEvent";
+    const out = "type B = React.SyntheticEvent;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle SyntheticMouseEvent", () => {
+    const input = "type B = SyntheticMouseEvent";
+    const out = "type B = React.MouseEvent;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle SyntheticKeyboardEvent", () => {
+    const input = "type B = SyntheticKeyboardEvent";
+    const out = "type B = React.KeyboardEvent;";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
@@ -488,6 +546,32 @@ describe("Declarations", () => {
 
     expect(collection.toSource()).toEqual(out);
   });
+
+  it("Transforms export class declarations", () => {
+    const input = "declare class Text extends React.Component<Props> {}";
+    const out = "declare class Text extends React.Component<Props> {}";
+    const collection = j(input);
+    allTransformations.forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("transforms complex class declarations", () => {
+    const input =
+      "declare export class Box<A> extends React.Component<Props> {}";
+    const out = "export declare class Box<A> extends React.Component<Props> {}";
+    const collection = j(input);
+    allTransformations.forEach(t => t(collection, j));
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("transforms complex class defs", () => {
+    const input = "class Box<A> extends React.Component<Props> {}";
+    const out = "class Box<A> extends React.Component<Props> {}";
+    const collection = j(input);
+    allTransformations.forEach(t => t(collection, j));
+    expect(collection.toSource()).toEqual(out);
+  });
 });
 
 describe("Classes", () => {
@@ -498,6 +582,50 @@ describe("Classes", () => {
       "class OverlayParent extends React.Component<Exclude<T, Props>, State> {}";
     const collection = j(input);
     [transformTypeParamInstantiation].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+});
+
+describe("Transform ?? and ?.", () => {
+  const commentLine = "// Auto generated from flowToTs. Please clean me!\n";
+  it("Transforms ?? - since it's not valid TS yet", () => {
+    const input = "foo ?? bar";
+    const out = commentLine + "foo !== null && foo !== undefined ? foo : bar";
+    const collection = j(input);
+    [transformNullCoalescing].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms ?. since it's not valid TS yet", () => {
+    const input = "foo?.bar";
+    const out =
+      commentLine + "foo === null || foo === undefined ? undefined : foo.bar";
+    const collection = j(input);
+    [transformNullCoalescing].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms complex cases of ??", () => {
+    const input = "foo ?? bar ?? baz";
+    const out =
+      commentLine +
+      "(foo !== null && foo !== undefined ? foo : bar) !== null && (foo !== null && foo !== undefined ? foo : bar) !== undefined ? foo !== null && foo !== undefined ? foo : bar : baz";
+    const collection = j(input);
+    [transformNullCoalescing].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms ?. nested", () => {
+    const input = "foo?.bar?.bam";
+    const out =
+      commentLine +
+      "(foo === null || foo === undefined ? undefined : foo.bar) === null || (foo === null || foo === undefined ? undefined : foo.bar) === undefined ? undefined : (foo === null || foo === undefined ? undefined : foo.bar).bam";
+    const collection = j(input);
+    [transformNullCoalescing].forEach(t => t(collection, j));
 
     expect(collection.toSource()).toEqual(out);
   });

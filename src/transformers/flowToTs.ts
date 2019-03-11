@@ -30,18 +30,24 @@ import {
   FunctionTypeAnnotation,
   RestElement,
   TSMappedType,
-  TSQualifiedName
+  TSQualifiedName,
+  MemberExpression,
+  OptionalMemberExpression,
+  LogicalExpression
 } from "jscodeshift";
 import { Node } from "ast-types/gen/nodes";
 import {
   FlowTypeKind,
   TSTypeKind,
   PatternKind,
-  QualifiedTypeIdentifierKind
+  QualifiedTypeIdentifierKind,
+  ExpressionKind,
+  MemberExpressionKind
 } from "ast-types/gen/kinds";
 import { Collection } from "jscodeshift/src/Collection";
 import { NodePath } from "recast";
-import { jsxClosingElement } from "@babel/types";
+import { jsxClosingElement, memberExpression } from "@babel/types";
+import pathPlugin from "ast-types/lib/path";
 
 const lowerCaseFirst = (s: string) => s.replace(/^(.)/, m => m.toLowerCase());
 
@@ -115,6 +121,20 @@ function convertQualifiedIdentifier(
   });
 }
 
+function convertQualifiedToMember(
+  j: JSCodeshift,
+  qid: QualifiedTypeIdentifier
+): MemberExpression {
+  return j.memberExpression.from({
+    comments: qid.comments || null,
+    object:
+      qid.qualification.type === "QualifiedTypeIdentifier"
+        ? convertQualifiedToMember(j, qid.qualification)
+        : qid.qualification,
+    property: qid.id
+  });
+}
+
 function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
   if ((type as TSType).type.startsWith("TS")) {
     return type as any;
@@ -135,9 +155,9 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
     case "MixedTypeAnnotation":
       return j.tsUnknownKeyword();
     case "NullLiteralTypeAnnotation":
-    case "VoidTypeAnnotation":
-      // return jts.tsUnionType([jts.tsNullKeyword(), jts.tsVoidKeyword()]);
       return j.tsNullKeyword();
+    case "VoidTypeAnnotation":
+      return j.tsVoidKeyword();
     case "ArrayTypeAnnotation":
       return j.tsArrayType(convertToTSType(j, type.elementType));
     case "EmptyTypeAnnotation":
@@ -173,15 +193,21 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
           id.qualification.name === "React"
         ) {
           if (id.id.name === "Node") {
-            let T = convertToTSType(j, type.typeParameters.params[0]);
+            let T = null;
+            if (type.typeParameters && type.typeParameters.params) {
+              T = convertToTSType(j, type.typeParameters.params[0]);
+            }
+
             return j.tsTypeReference.from({
               typeName: j.tsQualifiedName.from({
                 left: id.qualification,
                 right: j.identifier("ElementType")
               }),
-              typeParameters: j.tsTypeParameterInstantiation.from({
-                params: [T]
-              })
+              typeParameters: T
+                ? j.tsTypeParameterInstantiation.from({
+                    params: [T]
+                  })
+                : null
             });
           }
         }
@@ -189,6 +215,9 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
       if (id.type === "Identifier") {
         // Handle special cases
         switch (id.name) {
+          case "TimeoutID":
+          case "IntervalID":
+            return j.tsNumberKeyword();
           case "$Exact":
             return convertToTSType(j, type.typeParameters.params[0]);
           case "$Keys": {
@@ -198,6 +227,22 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
               operator: "keyof"
             });
           }
+          case "SyntheticEvent": {
+            return j.tsTypeReference.from({
+              typeName: j.tsQualifiedName(
+                j.identifier("React"),
+                j.identifier("SyntheticEvent")
+              )
+            });
+          }
+          case "SyntheticMouseEvent":
+          case "SyntheticKeyboardEvent":
+            return j.tsTypeReference.from({
+              typeName: j.tsQualifiedName(
+                j.identifier("React"),
+                j.identifier(id.name.replace("Synthetic", ""))
+              )
+            });
           case "$PropertyType":
           case "$ElementType": {
             let obj = convertToTSType(j, type.typeParameters.params[0]);
@@ -509,12 +554,24 @@ export function transformTypeAliases(
   collection.find(j.OpaqueType).forEach(visitor);
 }
 
+const stripLoc = (o: any) =>
+  o && typeof o === "object"
+    ? Object.keys(o).reduce(
+        (acc, k) => (k === "loc" ? acc : { ...acc, [k]: stripLoc(o[k]) }),
+        {}
+      )
+    : o;
+
 export function transformInterfaces(
   collection: Collection<any>,
   j: JSCodeshift,
   options?: Options
 ) {
   collection.find(j.InterfaceDeclaration).forEach(path => {
+    // Bug in this find??
+    if ((path.node as any).type === "DeclareClass") {
+      return;
+    }
     const body = j.tsInterfaceBody(
       path.node.body.properties.map(p =>
         convertPropertiesToTsProperties(j, p as ObjectTypeProperty)
@@ -604,10 +661,54 @@ export function transformDeclaration(
     });
     j(path).replaceWith(declaration);
   });
+  collection.find(j.DeclareClass).forEach(path => {
+    const id = path.node.id;
+    let superClass = null;
+    let superTypeParameters = null;
+    if (path.node.extends && path.node.extends.length) {
+      if (path.node.extends.length > 1) {
+        console.warn(
+          "TS doesn't support multiple super types for extensions",
+          JSON.stringify(path.node.loc && path.node.loc.start)
+        );
+      }
+
+      const _superId = path.node.extends[0].id;
+      superClass =
+        (_superId.type as any) === "QualifiedTypeIdentifier"
+          ? convertQualifiedToMember(j, _superId as any)
+          : _superId;
+      superTypeParameters = path.node.extends[0].typeParameters;
+    }
+    let typeParameters =
+      path.node.typeParameters &&
+      path.node.typeParameters.type === "TypeParameterDeclaration"
+        ? convertTypeParameters(j, path.node.typeParameters)
+        : path.node.typeParameters || null;
+
+    const declaration = j.classDeclaration.from({
+      id,
+      body: j.classBody([]),
+      superClass,
+      superTypeParameters,
+      typeParameters
+    });
+
+    // TODO bug with recast type
+    (declaration as any).declare = true;
+    j(path).replaceWith(declaration);
+  });
   collection.find(j.DeclareExportDeclaration).forEach(path => {
     switch (path.node.declaration.type as any) {
       case "TSDeclareFunction":
       case "VariableDeclaration":
+        j(path).replaceWith(
+          j.exportNamedDeclaration.from({
+            declaration: path.node.declaration as any
+          })
+        );
+        return;
+      case "ClassDeclaration":
         j(path).replaceWith(
           j.exportNamedDeclaration.from({
             declaration: path.node.declaration as any
@@ -637,6 +738,115 @@ export function transformTypeParamInstantiation(
   });
 }
 
+export function transformNullCoalescing(
+  collection: Collection<any>,
+  j: JSCodeshift,
+  options?: Options
+) {
+  const visitor = (node: ExpressionKind, firstTime: boolean) => {
+    if (!node || node.type !== "LogicalExpression" || node.operator !== "??") {
+      return node;
+    }
+
+    let { left, right } = node;
+    left = visitor(left, false);
+    right = visitor(right, false);
+    const nullCheck = j.binaryExpression.from({
+      operator: "!==",
+      left,
+      right: j.literal(null)
+    });
+    const undefinedCheck = j.binaryExpression.from({
+      operator: "!==",
+      left,
+      right: j.identifier("undefined")
+    });
+    const bothChecks = j.logicalExpression.from({
+      operator: "&&",
+      left: nullCheck,
+      right: undefinedCheck
+    });
+
+    const ternary = j.conditionalExpression.from({
+      comments: firstTime
+        ? [j.commentLine(" Auto generated from flowToTs. Please clean me!")]
+        : null,
+      test: bothChecks,
+      consequent: left,
+      alternate: right
+    });
+
+    return ternary;
+  };
+
+  const visitorOptionalMember = (node: ExpressionKind, firstTime: boolean) => {
+    if (node.type !== "OptionalMemberExpression") {
+      return node;
+    }
+
+    let left = node.object;
+    let right = node.property;
+    left = visitorOptionalMember(left, false);
+    right = visitorOptionalMember(right, false);
+    const nullCheck = j.binaryExpression.from({
+      operator: "===",
+      left,
+      right: j.literal(null)
+    });
+    const undefinedCheck = j.binaryExpression.from({
+      operator: "===",
+      left,
+      right: j.identifier("undefined")
+    });
+    const bothChecks = j.logicalExpression.from({
+      operator: "||",
+      left: nullCheck,
+      right: undefinedCheck
+    });
+
+    const ternary = j.conditionalExpression.from({
+      comments: firstTime
+        ? [j.commentLine(" Auto generated from flowToTs. Please clean me!")]
+        : null,
+      test: bothChecks,
+      consequent: j.identifier("undefined"),
+      alternate: j.memberExpression(left, right)
+    });
+
+    return ternary;
+  };
+
+  collection.find(j.LogicalExpression).replaceWith(p => visitor(p.node, true));
+  collection
+    .find(j.OptionalMemberExpression)
+    .replaceWith(p => visitorOptionalMember(p.node, true));
+}
+
+export function transformTypeParameters(
+  collection: Collection<any>,
+  j: JSCodeshift,
+  options?: Options
+) {
+  collection
+    .find(j.TypeParameterDeclaration)
+    .replaceWith(p => convertTypeParameters(j, p.node));
+}
+
+export const allTransformations = [
+  transformNullCoalescing,
+  transformDeclaration,
+  transfromTypeAnnotations,
+  transformFunctionTypes,
+  transformIdentifiers,
+  transformImports,
+  transformInterfaces,
+  transformTypeCastings,
+  transformTypeAliases,
+  transformExports,
+  transformTypeParamInstantiation,
+  transformTypeParameters
+];
+
 const transformer: Transform = function(
   file: FileInfo,
   api: API,
@@ -645,20 +855,7 @@ const transformer: Transform = function(
   const j = api.jscodeshift.withParser("flow");
   const collection = j(file.source);
 
-  const transformations = [
-    transformDeclaration,
-    transfromTypeAnnotations,
-    transformFunctionTypes,
-    transformIdentifiers,
-    transformImports,
-    transformInterfaces,
-    transformTypeCastings,
-    transformTypeAliases,
-    transformExports,
-    transformTypeParamInstantiation
-  ];
-
-  transformations.forEach(transformation => transformation(collection, j));
+  allTransformations.forEach(transformation => transformation(collection, j));
 
   let transformedSource = collection.toSource();
   transformedSource = transformedSource.replace(/^\/\/ ?@flow.*\n/, "");
