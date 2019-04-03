@@ -8,13 +8,19 @@ flowToTs [options] <PATH>
 
 Options:
 
---output, -o\tOutput file format [string] [choices: "ts", "tsx", "d.ts"] [default: "tsx"]
+--output, -o\tOutput file format [string] [choices: "ts", "tsx", "d.ts", "tsxFromJsx"]
 
-What should I output?
+What should I pick for output?
 
-Output "ts" when you are converting a regular non jsx file.
-Ouptut "tsx" when your file has jsx inside.
-Ouptut "d.ts" when you want to convert a .js.flow file. (only reads in .js.flow files)
+Pick "ts" when you are converting a regular non jsx file.
+Pick "tsx" when your file has jsx inside and is a .js file.
+Pick "d.ts" when you want to convert a .js.flow file. (only reads in .js.flow files)
+Pick "tsxFromJsx" when you want to transform a .jsx file
+
+Use -- after the arguments to pass any extra arguments to jscodeshift.
+Example:
+
+flow-to-ts -o ts /path/to/flow/files -- --dry
 
 check the README.md for more info: https://github.com/MarcoPolo/flowToTs
 `;
@@ -42,13 +48,15 @@ const subCmd = (fileIn, fileOut, extra) => [
 
 let spawnedSubCmd;
 if (output == "ts") {
-  spawnedSubCmd = spawn(...subCmd(".js", ".ts", argv._));
+  spawnedSubCmd = spawn(...subCmd(".js$", ".ts", argv._));
 } else if (output == "tsx") {
-  spawnedSubCmd = spawn(...subCmd(".js", ".tsx", argv._));
+  spawnedSubCmd = spawn(...subCmd(".js$", ".tsx", argv._));
+} else if (output == "tsxFromJsx") {
+  argv._ = ["--extensions=jsx", ...argv._];
+  spawnedSubCmd = spawn(...subCmd(".jsx", ".tsx", argv._));
 } else if (output == "d.ts") {
-  spawnedSubCmd = spawn(
-    ...subCmd(".js", ".tsx", '--extensions="flow"', argv._)
-  );
+  argv._ = ["--extensions=flow", ...argv._];
+  spawnedSubCmd = spawn(...subCmd(".js.flow", ".d.ts", argv._));
 } else {
   console.log(usage);
   process.exit(0);

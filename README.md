@@ -2,6 +2,44 @@
 
 Converts flow files to ts using jscodeshift. It isn't perfect, but should get you pretty close. There are a couple of fundamental differences that have to be manually converted.
 
+# Usage
+
+```
+$ npx flow-to-ts -o ts /path/to/flow/files # Will convert .js files into .ts files
+```
+
+If you're going to be using this tool a couple of times, it's probably best not to use `npx` since it will reinstall everything [everytime](https://github.com/zkat/npx/issues/113) you run it.
+
+instead use `npm install -g flow-to-ts`
+
+## Advanced Usage
+
+### .js files with jsx
+
+```
+$ npx flow-to-ts -o tsx /path/to/flow/files # Will convert .js files into .tsx files
+```
+
+### .jsx files
+
+```
+$ npx flow-to-ts -o tsxFromJsx /path/to/flow/files # Will convert .jsx files into .tsx files
+```
+
+### .js.flow files
+
+```
+$ npx flow-to-ts -o d.ts /path/to/flow/files # Will convert .js.flow files into .d.ts files
+```
+
+### Dry Mode and passing arguments to jscodeshift
+
+Everything after -- will be forwarded to jscodeshift cli
+
+```
+$ npx flow-to-ts -o ts /path/to/flow/files -- --dry # Won't change code
+```
+
 ## Fundamental Differences
 
 ### .js.flow vs .d.ts
@@ -39,19 +77,3 @@ const barFactory2: Factory<Bar> = factoryFactory({
   arr: [1323, 54]
 } as Bar);
 ```
-
-# Usage
-
-I recommend running these with a --dry flag first to see if your code will cause any errors during transformation.
-
-`npm run transformFlowToTSX -- PATH`
-
-(recommended) Will convert all .js files into .tsx files in a given `PATH`.
-
-`npm run transformFlowToTS -- PATH`
-
-Will convert all .js files into .ts files in a given `PATH`.
-
-`npm run transformFlowDefToDTS -- PATH`
-
-Will convert all .js.flow files into .d.ts files in a given `PATH`.
