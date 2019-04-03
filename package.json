@@ -1,8 +1,16 @@
 {
   "name": "flow-to-ts",
   "version": "1.0.1",
-  "description": "Transformer to convert flow files to typescript",
-  "main": "cli.js",
+  "description": "codemod to convert flow files to typescript",
+  "keywords": [
+    "codemod",
+    "flow",
+    "ts",
+    "typescript",
+    "flow to typescript"
+  ],
+  "main": "./cli.js",
+  "bin": "./cli.js",
   "scripts": {
     "test": "jest",
     "transformFlowToTS": "./node_modules/jscodeshift/bin/jscodeshift.js -t src/transformers/flowToTs.ts --transformFileIn=\".js$\" --transformFileOut=\".ts\"",
