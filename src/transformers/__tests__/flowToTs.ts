@@ -187,6 +187,15 @@ describe("Exact types", () => {
     transformTypeAliases(collection, j);
     expect(collection.toSource()).toEqual(out);
   });
+
+  it("Transforms function with rest types", () => {
+    const input = "type A = ((...Array<any>) => Object) => string";
+    const out = "type A = (arg0: (...args: Array<any>) => Object) => string;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
 });
 
 describe("Handles opaque types", () => {

@@ -416,7 +416,7 @@ function convertTypeParameters(
 function convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
   if (rest) {
     return j.restElement.from({
-      argument: rest.name,
+      argument: rest.name || j.tsTypeParameter('args'),
       typeAnnotation: j.tsTypeAnnotation(
         convertToTSType(j, rest.typeAnnotation)
       )
