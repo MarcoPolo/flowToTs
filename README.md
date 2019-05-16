@@ -23,7 +23,7 @@ $ npx flow-to-ts -o tsx /path/to/flow/files # Will convert .js files into .tsx f
 ### .jsx files
 
 ```
-$ npx flow-to-ts -o tsxFromJsx /path/to/flow/files # Will convert .jsx files into .tsx files
+$ npx flow-to-ts -o tsx /path/to/flow/files # Will convert .jsx files into .tsx files
 ```
 
 ### .js.flow files

@@ -35,10 +35,10 @@ const { spawn } = require("child_process");
 
 const output = argv.output || argv.o;
 const subCmd = (fileIn, fileOut, extra) => [
-  `./node_modules/jscodeshift/bin/jscodeshift.js`,
+  require.resolve(`./node_modules/jscodeshift/bin/jscodeshift.js`),
   [
     `-t`,
-    `src/transformers/flowToTs.ts`,
+    require.resolve(`./src/transformers/flowToTs.ts`),
     `--transformFileIn=${fileIn}`,
     `--transformFileOut=${fileOut}`,
     ...extra
