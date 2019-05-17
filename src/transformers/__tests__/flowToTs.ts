@@ -538,7 +538,7 @@ describe("JSX", () => {
 describe("Declarations", () => {
   it("Transforms export declarations", () => {
     const input = "declare export var mobileStyles: {}";
-    const out = "export declare var mobileStyles: {};";
+    const out = "export declare const mobileStyles: {};";
     const collection = j(input);
     [transformDeclaration].forEach(t => t(collection, j));
 
@@ -639,3 +639,5 @@ describe("Transform ?? and ?.", () => {
     expect(collection.toSource()).toEqual(out);
   });
 });
+
+// TODO Add class with typed methods inside

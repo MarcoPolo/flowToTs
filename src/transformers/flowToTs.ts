@@ -416,7 +416,7 @@ function convertTypeParameters(
 function convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
   if (rest) {
     return j.restElement.from({
-      argument: rest.name || j.tsTypeParameter('args'),
+      argument: rest.name || j.tsTypeParameter("args"),
       typeAnnotation: j.tsTypeAnnotation(
         convertToTSType(j, rest.typeAnnotation)
       )
@@ -622,7 +622,7 @@ export function transformDeclaration(
           init: null
         })
       ],
-      kind: "var"
+      kind: "const"
     });
 
     // TODO bug with recast type
