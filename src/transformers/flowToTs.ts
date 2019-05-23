@@ -426,9 +426,9 @@ function convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
 
 function convertFunctionParam(
   j: JSCodeshift,
-  typeParam: FunctionTypeParam
+  typeParam: FunctionTypeParam,
+  index: number
 ): Identifier {
-  let argCounter = 0;
   const optional = typeParam.optional;
   const typeAnnotation = j.tsTypeAnnotation(
     convertToTSType(j, typeParam.typeAnnotation)
@@ -439,7 +439,7 @@ function convertFunctionParam(
     : typeParam.typeAnnotation.type === "GenericTypeAnnotation" &&
       typeParam.typeAnnotation.id.type === "Identifier"
     ? lowerCaseFirst(typeParam.typeAnnotation.id.name)
-    : `arg${argCounter++}`;
+    : `arg${index}`;
 
   let tsParam = j.identifier(paramName);
   tsParam.typeAnnotation = typeAnnotation;
@@ -452,7 +452,7 @@ function convertFunctionParams(
   j: JSCodeshift,
   f: FunctionTypeAnnotation
 ): TSFParam[] {
-  const params: TSFParam[] = f.params.map(p => convertFunctionParam(j, p));
+  const params: TSFParam[] = f.params.map((p, i) => convertFunctionParam(j, p, i));
   if (f.rest) {
     params.push(convertRestParams(j, f.rest));
   }

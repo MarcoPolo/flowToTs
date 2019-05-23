@@ -196,6 +196,16 @@ describe("Exact types", () => {
     transformTypeAliases(collection, j);
     expect(collection.toSource()).toEqual(out);
   });
+
+  it("Transforms unnamed types", () => {
+    const input = "type A = (string, string, string) => string";
+    const out =
+      "type A = (arg0: string, arg1: string, arg2: string) => string;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
 });
 
 describe("Handles opaque types", () => {
