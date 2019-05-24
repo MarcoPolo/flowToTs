@@ -452,7 +452,9 @@ function convertFunctionParams(
   j: JSCodeshift,
   f: FunctionTypeAnnotation
 ): TSFParam[] {
-  const params: TSFParam[] = f.params.map((p, i) => convertFunctionParam(j, p, i));
+  const params: TSFParam[] = f.params.map((p, i) =>
+    convertFunctionParam(j, p, i)
+  );
   if (f.rest) {
     params.push(convertRestParams(j, f.rest));
   }
@@ -699,6 +701,16 @@ export function transformDeclaration(
     j(path).replaceWith(declaration);
   });
   collection.find(j.DeclareExportDeclaration).forEach(path => {
+    // Check if this is a default export
+    if (path.node.default) {
+      if (path.node.declaration.hasOwnProperty("id")) {
+        // @ts-ignore
+        path.insertAfter(j.exportDefaultDeclaration(path.node.declaration.id));
+        path.replace(path.node.declaration);
+        return;
+      }
+    }
+
     switch (path.node.declaration.type as any) {
       case "TSDeclareFunction":
       case "VariableDeclaration":

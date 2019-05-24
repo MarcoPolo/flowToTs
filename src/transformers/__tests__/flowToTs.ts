@@ -575,6 +575,15 @@ describe("Declarations", () => {
     expect(collection.toSource()).toEqual(out);
   });
 
+  it("Transforms export default class declarations", () => {
+    const input = "declare export default class Foo {}";
+    const out = "declare class Foo {}\nexport default Foo;";
+    const collection = j(input);
+    allTransformations.forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
   it("transforms complex class declarations", () => {
     const input =
       "declare export class Box<A> extends React.Component<Props> {}";
