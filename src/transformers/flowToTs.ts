@@ -201,7 +201,7 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
             return j.tsTypeReference.from({
               typeName: j.tsQualifiedName.from({
                 left: id.qualification,
-                right: j.identifier("ElementType")
+                right: j.identifier("ReactNode")
               }),
               typeParameters: T
                 ? j.tsTypeParameterInstantiation.from({

@@ -262,7 +262,7 @@ describe("Can handle common special Flow Types", () => {
 
   it("Transforms React.Node", () => {
     const input = "type B = React.Node<Props>";
-    const out = "type B = React.ElementType<Props>;";
+    const out = "type B = React.ReactNode<Props>;";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
