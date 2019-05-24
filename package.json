@@ -13,6 +13,7 @@
   "bin": "./cli.js",
   "scripts": {
     "test": "jest",
+    "postinstall": "npm install",
     "transformFlowToTS": "./node_modules/jscodeshift/bin/jscodeshift.js -t src/transformers/flowToTs.ts --transformFileIn=\".js$\" --transformFileOut=\".ts\"",
     "transformFlowToTSX": "./node_modules/jscodeshift/bin/jscodeshift.js -t src/transformers/flowToTs.ts --transformFileIn=\".js$\" --transformFileOut=\".tsx\"",
     "transformFlowDefToDTS": "./node_modules/jscodeshift/bin/jscodeshift.js -t src/transformers/flowToTs.ts --transformFileIn=\".js.flow$\" --transformFileOut=\".d.ts\" --extensions=\"flow\""
