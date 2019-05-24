@@ -51,7 +51,40 @@ import pathPlugin from "ast-types/lib/path";
 
 const lowerCaseFirst = (s: string) => s.replace(/^(.)/, m => m.toLowerCase());
 
-function convertIndexedToMappedType(
+function withComments<In, Out>(
+  visitor: (j: JSCodeshift, type: In) => Out
+): (j: JSCodeshift, type: In) => Out {
+  return (j: JSCodeshift, type: In): Out => {
+    const newType = visitor(j, type);
+    if (type) {
+      // @ts-ignore
+      const originalComments = type.comments;
+      // @ts-ignore
+      newType.comments = originalComments;
+    }
+    return newType;
+  };
+}
+
+function withCommentsIndexed<In, Out>(
+  visitor: (j: JSCodeshift, type: In, index: number) => Out
+): (j: JSCodeshift, type: In, index: number) => Out {
+  return (j: JSCodeshift, type: In, index: number): Out => {
+    // @ts-ignore
+    const newType = visitor(j, type, index);
+    if (type) {
+      // @ts-ignore
+      const originalComments = type.comments;
+      // @ts-ignore
+      newType.comments = originalComments;
+    }
+    return newType;
+  };
+}
+
+const convertIndexedToMappedType = withComments(_convertIndexedToMappedType);
+
+function _convertIndexedToMappedType(
   j: JSCodeshift,
   t: ObjectTypeIndexer
 ): TSMappedType {
@@ -66,7 +99,11 @@ function convertIndexedToMappedType(
   });
 }
 
-function convertPropertiesToTsProperties(
+const convertPropertiesToTsProperties = withComments(
+  _convertPropertiesToTsProperties
+);
+
+function _convertPropertiesToTsProperties(
   j: JSCodeshift,
   p: ObjectTypeProperty | ObjectTypeIndexer
 ): TSPropertySignature | TSIndexSignature {
@@ -106,7 +143,8 @@ function convertPropertiesToTsProperties(
   }
 }
 
-function convertQualifiedIdentifier(
+const convertQualifiedIdentifier = withComments(_convertQualifiedIdentifier);
+function _convertQualifiedIdentifier(
   j: JSCodeshift,
   qid: QualifiedTypeIdentifier
 ) {
@@ -121,7 +159,8 @@ function convertQualifiedIdentifier(
   });
 }
 
-function convertQualifiedToMember(
+const convertQualifiedToMember = withComments(_convertQualifiedToMember);
+function _convertQualifiedToMember(
   j: JSCodeshift,
   qid: QualifiedTypeIdentifier
 ): MemberExpression {
@@ -135,7 +174,9 @@ function convertQualifiedToMember(
   });
 }
 
-function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
+const convertToTSType = withComments(_convertToTSType);
+
+function _convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
   if ((type as TSType).type.startsWith("TS")) {
     return type as any;
   }
@@ -387,7 +428,8 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
   );
 }
 
-function convertTypeAnnotation(
+const convertTypeAnnotation = withComments(_convertTypeAnnotation);
+function _convertTypeAnnotation(
   j: JSCodeshift,
   t: TypeAnnotation
 ): TSTypeAnnotation {
@@ -396,7 +438,8 @@ function convertTypeAnnotation(
   });
 }
 
-function convertTypeParameter(
+const convertTypeParameter = withComments(_convertTypeParameter);
+function _convertTypeParameter(
   j: JSCodeshift,
   parameter: TypeParameter
 ): TSTypeParameter {
@@ -411,7 +454,8 @@ function convertTypeParameter(
   });
 }
 
-function convertTypeParameters(
+const convertTypeParameters = withComments(_convertTypeParameters);
+function _convertTypeParameters(
   j: JSCodeshift,
   typeParams: TypeParameterDeclaration
 ): TSTypeParameterDeclaration | null {
@@ -420,7 +464,8 @@ function convertTypeParameters(
   return params ? j.tsTypeParameterDeclaration.from({ params }) : null;
 }
 
-function convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
+const convertRestParams = withComments(_convertRestParams);
+function _convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
   if (rest) {
     return j.restElement.from({
       argument: rest.name || j.tsTypeParameter("args"),
@@ -431,7 +476,8 @@ function convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
   }
 }
 
-function convertFunctionParam(
+const convertFunctionParam = withCommentsIndexed(_convertFunctionParam);
+function _convertFunctionParam(
   j: JSCodeshift,
   typeParam: FunctionTypeParam,
   index: number
@@ -455,7 +501,8 @@ function convertFunctionParam(
 }
 
 type TSFParam = Identifier | RestElement;
-function convertFunctionParams(
+const convertFunctionParams = withComments(_convertFunctionParams);
+function _convertFunctionParams(
   j: JSCodeshift,
   f: FunctionTypeAnnotation
 ): TSFParam[] {
@@ -548,6 +595,7 @@ export function transformTypeAliases(
     const node = path.node;
     const flowType = node.type === "TypeAlias" ? node.right : node.impltype;
     const tsTypeAnnotation = convertToTSType(j, flowType);
+    tsTypeAnnotation.comments = flowType.comments;
     const typeParameters = convertTypeParameters(j, node.typeParameters);
 
     const typeAlias = j.tsTypeAliasDeclaration.from({
@@ -556,7 +604,9 @@ export function transformTypeAliases(
       typeParameters
     });
 
+    const originalComments = path.node.comments;
     j(path).replaceWith(typeAlias);
+    j(path).get(0).node.comments = originalComments;
   };
 
   collection.find(j.TypeAlias).forEach(visitor);

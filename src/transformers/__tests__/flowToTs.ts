@@ -517,6 +517,23 @@ describe("Transforms types", () => {
     expect(collection.toSource()).toEqual(out);
   });
 
+  it("Preserves comments in Obj types", () => {
+    const input = `type Foo = {
+// THis is an important comment
+bar: number,
+baz: string, // another important comment
+}`;
+    const out = `type Foo = {
+  // THis is an important comment
+  bar: number,
+  baz: string // another important comment
+};`;
+    const collection = j(input);
+    [transformTypeAliases].forEach(t => t(collection, j));
+
+    expect(collection.toSource()).toEqual(out);
+  });
+
   it("Transforms empty", () => {
     const input = "type Foo = {foo?: empty, bar: number};";
     const out = "type Foo = { foo?: never, bar: number};";
