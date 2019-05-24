@@ -33,7 +33,8 @@ import {
   TSQualifiedName,
   MemberExpression,
   OptionalMemberExpression,
-  LogicalExpression
+  LogicalExpression,
+  TSDeclareMethod
 } from "jscodeshift";
 import { Node } from "ast-types/gen/nodes";
 import {
@@ -119,6 +120,23 @@ function _convertPropertiesToTsProperties(
   if (p.type == "ObjectTypeProperty") {
     const tsType = convertToTSType(j, p.value);
     if (tsType) {
+      // @ts-ignore this can be true
+      if (p.method) {
+        // @ts-ignore
+        const params: TSFParam[] = p.value.params
+          .map((p, i) => p && convertFunctionParam(j, p, i))
+          .filter(Boolean);
+        const returnType =
+          // @ts-ignore
+          p.value.returnType.typeAnnotation &&
+          convertTypeAnnotation(j, p.value.returnType);
+        // @ts-ignore
+        return j.tsDeclareMethod.from({
+          key: p.key,
+          params,
+          returnType
+        });
+      }
       const typeAnnotation = j.tsTypeAnnotation(tsType);
       return j.tsPropertySignature.from({
         key: p.key,
@@ -579,7 +597,7 @@ export function transfromTypeAnnotations(
   options?: Options
 ) {
   collection.find(j.TypeAnnotation).forEach(path => {
-    j(path).replaceWith(convertTypeAnnotation(j, path.node));
+    path.node && j(path).replaceWith(convertTypeAnnotation(j, path.node));
   });
 }
 
@@ -735,6 +753,7 @@ export function transformDeclaration(
     });
     j(path).replaceWith(declaration);
   });
+
   collection.find(j.DeclareClass).forEach(path => {
     const id = path.node.id;
     let superClass = null;
@@ -762,7 +781,15 @@ export function transformDeclaration(
 
     const declaration = j.classDeclaration.from({
       id,
-      body: j.classBody([]),
+      body: j.classBody(
+        path.node.body.properties
+          .map(p =>
+            p.type === "ObjectTypeProperty" && p.value.type
+              ? convertPropertiesToTsProperties(j, p)
+              : null
+          )
+          .filter(Boolean)
+      ),
       superClass,
       superTypeParameters,
       typeParameters
