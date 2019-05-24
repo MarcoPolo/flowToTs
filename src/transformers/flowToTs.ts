@@ -192,7 +192,14 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
           id.qualification.type === "Identifier" &&
           id.qualification.name === "React"
         ) {
+          let translatedName;
           if (id.id.name === "Node") {
+            translatedName = "ReactNode";
+          } else if (id.id.name === "ElementRef") {
+            translatedName = "Ref";
+          }
+
+          if (translatedName) {
             let T = null;
             if (type.typeParameters && type.typeParameters.params) {
               T = convertToTSType(j, type.typeParameters.params[0]);
@@ -201,7 +208,7 @@ function convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
             return j.tsTypeReference.from({
               typeName: j.tsQualifiedName.from({
                 left: id.qualification,
-                right: j.identifier("ReactNode")
+                right: j.identifier(translatedName)
               }),
               typeParameters: T
                 ? j.tsTypeParameterInstantiation.from({

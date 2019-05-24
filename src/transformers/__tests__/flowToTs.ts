@@ -269,6 +269,15 @@ describe("Can handle common special Flow Types", () => {
     expect(collection.toSource()).toEqual(out);
   });
 
+  it("Transforms React.Node", () => {
+    const input = "type B = React.ElementRef<T>";
+    const out = "type B = React.Ref<T>;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
   it("Can handle $Keys", () => {
     const input = "type B = $Keys<A>";
     const out = "type B = keyof A;";
