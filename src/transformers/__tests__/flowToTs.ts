@@ -233,7 +233,31 @@ describe("Handles interface definition and readonly", () => {
 describe("Transforms castings", () => {
   it("Can handle a simple casting", () => {
     const input = "1 + (a: number)";
-    const out = "1 + (a as number)";
+    const out = "1 + a as number;";
+    const collection = j(input);
+
+    transformTypeCastings(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle tricky type casting", () => {
+    const input = `const mapStateToProps = (state, {routeSelected}: OwnProps) => ({
+  isModal: false,
+  selectedTab: ((routeSelected: any): Types.Tab),
+})`;
+    const out = `const mapStateToProps = (state, {routeSelected}: OwnProps) => ({
+  isModal: false,
+  selectedTab: routeSelected as any as Types.Tab
+});`;
+    const collection = j(input);
+
+    transformTypeCastings(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Can handle tricky type casting", () => {
+    const input = "const b = ((routeSelected: any): Types.Tab)";
+    const out = "const b = routeSelected as any as Types.Tab;";
     const collection = j(input);
 
     transformTypeCastings(collection, j);

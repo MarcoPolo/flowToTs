@@ -82,6 +82,15 @@ function withCommentsIndexed<In, Out>(
   };
 }
 
+// Sometimes we have output bugs because there are original nodes attached to the node
+// https://github.com/benjamn/recast/issues/327
+export const clearOriginals = path => {
+  path.node && (path.node.original = undefined);
+  if (path.parent) {
+    clearOriginals(path.parent);
+  }
+};
+
 const convertIndexedToMappedType = withComments(_convertIndexedToMappedType);
 
 function _convertIndexedToMappedType(
@@ -655,6 +664,12 @@ export function transformTypeCastings(
   options?: Options
 ) {
   collection.find(j.TypeCastExpression).forEach(path => {
+    if (path.node.type !== "TypeCastExpression") {
+      console.log("already visited");
+      return;
+    }
+
+    clearOriginals(path);
     const asExp = j.tsAsExpression.from({
       expression: path.node.expression,
       typeAnnotation: convertToTSType(
