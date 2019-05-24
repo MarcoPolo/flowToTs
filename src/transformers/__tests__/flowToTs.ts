@@ -634,13 +634,15 @@ describe("Declarations", () => {
     expect(collection.toSource()).toEqual(out);
   });
 
-
-  it("Transforms class declarations without losing methods", () => {
+  it.only("Transforms class declarations without losing methods", () => {
     const input = `declare class Foo {
-      foo(): string {}
+      foo(): string
       bar = (): string => {}
      }`;
-    const out = "declare class Text extends React.Component<Props> {}";
+    const out = `declare class Foo {
+ foo(): string;
+ bar: () => (arg0: string) => {};
+}`;
     const collection = j(input);
     transformDeclaration(collection, j);
     // allTransformations.forEach(t => t(collection, j));

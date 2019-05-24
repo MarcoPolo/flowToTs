@@ -34,7 +34,8 @@ import {
   MemberExpression,
   OptionalMemberExpression,
   LogicalExpression,
-  TSDeclareMethod
+  TSDeclareMethod,
+  ClassProperty
 } from "jscodeshift";
 import { Node } from "ast-types/gen/nodes";
 import {
@@ -67,12 +68,12 @@ function withComments<In, Out>(
   };
 }
 
-function withCommentsIndexed<In, Out>(
-  visitor: (j: JSCodeshift, type: In, index: number) => Out
-): (j: JSCodeshift, type: In, index: number) => Out {
-  return (j: JSCodeshift, type: In, index: number): Out => {
+function withComments3<In, Out, T>(
+  visitor: (j: JSCodeshift, type: In, t: T) => Out
+): (j: JSCodeshift, type: In, t: T) => Out {
+  return (j: JSCodeshift, type: In, t: T): Out => {
     // @ts-ignore
-    const newType = visitor(j, type, index);
+    const newType = visitor(j, type, t);
     if (type) {
       // @ts-ignore
       const originalComments = type.comments;
@@ -113,6 +114,40 @@ const convertPropertiesToTsProperties = withComments(
   _convertPropertiesToTsProperties
 );
 
+const convertClassPropertiesToTsProperties = withComments(
+  _convertClassPropertiesToTsProperties
+);
+
+function _convertClassPropertiesToTsProperties(
+  j: JSCodeshift,
+  p: ObjectTypeProperty | ObjectTypeIndexer
+): TSPropertySignature | TSIndexSignature {
+  // @ts-ignore this can be true when we are dealing with classes
+  if (p.method) {
+    // @ts-ignore
+    const params: TSFParam[] = p.value.params
+      .map((p, i) => p && convertFunctionParam(j, p, i))
+      .filter(Boolean);
+    // @ts-ignore
+    const returnType = convertToTSType(j, p.value.returnType);
+
+    return j.tsDeclareMethod.from({
+      // @ts-ignore
+      key: p.key,
+      params,
+      returnType: returnType ? j.tsTypeAnnotation(returnType) : null
+    });
+  }
+
+  const classProperty = convertToTSType(j, p.value);
+  return j.classProperty.from({
+    // @ts-ignore
+    key: p.key,
+    typeAnnotation: j.tsTypeAnnotation(classProperty),
+    value: null
+  });
+}
+
 function _convertPropertiesToTsProperties(
   j: JSCodeshift,
   p: ObjectTypeProperty | ObjectTypeIndexer
@@ -120,23 +155,6 @@ function _convertPropertiesToTsProperties(
   if (p.type == "ObjectTypeProperty") {
     const tsType = convertToTSType(j, p.value);
     if (tsType) {
-      // @ts-ignore this can be true
-      if (p.method) {
-        // @ts-ignore
-        const params: TSFParam[] = p.value.params
-          .map((p, i) => p && convertFunctionParam(j, p, i))
-          .filter(Boolean);
-        const returnType =
-          // @ts-ignore
-          p.value.returnType.typeAnnotation &&
-          convertTypeAnnotation(j, p.value.returnType);
-        // @ts-ignore
-        return j.tsDeclareMethod.from({
-          key: p.key,
-          params,
-          returnType
-        });
-      }
       const typeAnnotation = j.tsTypeAnnotation(tsType);
       return j.tsPropertySignature.from({
         key: p.key,
@@ -503,7 +521,7 @@ function _convertRestParams(j: JSCodeshift, rest: FunctionTypeParam | null) {
   }
 }
 
-const convertFunctionParam = withCommentsIndexed(_convertFunctionParam);
+const convertFunctionParam = withComments3(_convertFunctionParam);
 function _convertFunctionParam(
   j: JSCodeshift,
   typeParam: FunctionTypeParam,
@@ -682,11 +700,6 @@ export function transformTypeCastings(
   options?: Options
 ) {
   collection.find(j.TypeCastExpression).forEach(path => {
-    if (path.node.type !== "TypeCastExpression") {
-      console.log("already visited");
-      return;
-    }
-
     clearOriginals(path);
     const asExp = j.tsAsExpression.from({
       expression: path.node.expression,
@@ -706,6 +719,7 @@ export function transformDeclaration(
   options?: Options
 ) {
   collection.find(j.DeclareVariable).forEach(path => {
+    clearOriginals(path);
     const id = path.node.id;
     const declaration = j.variableDeclaration.from({
       declarations: [
@@ -785,7 +799,7 @@ export function transformDeclaration(
         path.node.body.properties
           .map(p =>
             p.type === "ObjectTypeProperty" && p.value.type
-              ? convertPropertiesToTsProperties(j, p)
+              ? convertClassPropertiesToTsProperties(j, p)
               : null
           )
           .filter(Boolean)
