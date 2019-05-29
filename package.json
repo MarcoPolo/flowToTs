@@ -1,6 +1,6 @@
 {
   "name": "flow-to-ts",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "codemod to convert flow files to typescript",
   "keywords": [
     "codemod",
