@@ -460,11 +460,13 @@ function _convertToTSType(j: JSCodeshift, type: FlowTypeKind): TSTypeKind {
       const tsReturn = j.tsTypeAnnotation(convertToTSType(j, type.returnType));
       const typeParameters = convertTypeParameters(j, type.typeParameters);
 
-      return j.tsFunctionType.from({
-        parameters,
-        typeAnnotation: tsReturn,
-        typeParameters
-      });
+      return j.tsParenthesizedType(
+        j.tsFunctionType.from({
+          parameters,
+          typeAnnotation: tsReturn,
+          typeParameters
+        })
+      );
   }
   throw new Error(
     `Unhandled case for ${type.type} at ${JSON.stringify(

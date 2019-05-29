@@ -50,7 +50,7 @@ describe("Transform Import statements", () => {
 describe("Functions", () => {
   it("Transforms extends in generics", () => {
     const input = "type First<T: {}> = (a: Array<T>) => T";
-    const out = "type First<T extends {}> = (a: Array<T>) => T;";
+    const out = "type First<T extends {}> = ((a: Array<T>) => T);";
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
@@ -60,7 +60,7 @@ describe("Functions", () => {
 
   it("Transforms function types", () => {
     const input = "type F = (A, B) => C";
-    const out = "type F = (a: A, b: B) => C;";
+    const out = "type F = ((a: A, b: B) => C);";
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
@@ -79,7 +79,7 @@ describe("Functions", () => {
 
   it("Preserves arg names", () => {
     const input = "type F = (coolArg: A, B) => C";
-    const out = "type F = (coolArg: A, b: B) => C;";
+    const out = "type F = ((coolArg: A, b: B) => C);";
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
@@ -88,7 +88,7 @@ describe("Functions", () => {
 
   it("Preserves optional args", () => {
     const input = "type F = (coolArg: A, optional?: B) => C";
-    const out = "type F = (coolArg: A, optional?: B) => C;";
+    const out = "type F = ((coolArg: A, optional?: B) => C);";
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
@@ -97,10 +97,38 @@ describe("Functions", () => {
 
   it("Transforms maybe types", () => {
     const input = "type F = (coolArg: A, optional?: B) => ?C";
-    const out = "type F = (coolArg: A, optional?: B) => C | null;";
+    const out = "type F = ((coolArg: A, optional?: B) => C | null);";
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms maybe fns", () => {
+    const input = "type F = ?(coolArg: A) => C";
+    const out = "type F = ((coolArg: A) => C) | null;";
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms maybe fns in union", () => {
+    const input = "type ActionOrInProgress = (() => void) | 'in-progress'";
+    const out = 'type ActionOrInProgress = (() => void) | "in-progress";';
+    const collection = j(input);
+
+    transformTypeAliases(collection, j);
+    expect(collection.toSource()).toEqual(out);
+  });
+
+  it("Transforms maybe fns in object", () => {
+    const input = "type F = {foo: ?(coolArg: A) => C}";
+    const out = "type F = {\n  foo: ((coolArg: A) => C) | null\n};";
+    const collection = j(input);
+
+    transformFunctionTypes(collection, j);
+    transformTypeAliases(collection, j);
     expect(collection.toSource()).toEqual(out);
   });
 
@@ -116,7 +144,7 @@ describe("Functions", () => {
 
   it("Works with generics", () => {
     const input = "type F = (A<number>, B) => C";
-    const out = "type F = (a: A<number>, b: B) => C;";
+    const out = "type F = ((a: A<number>, b: B) => C);";
     const collection = j(input);
 
     transformFunctionTypes(collection, j);
@@ -181,7 +209,7 @@ describe("Exact types", () => {
 
   it("Transforms function types", () => {
     const input = "type A = () => string";
-    const out = "type A = () => string;";
+    const out = "type A = (() => string);";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
@@ -190,7 +218,8 @@ describe("Exact types", () => {
 
   it("Transforms function with rest types", () => {
     const input = "type A = ((...Array<any>) => Object) => string";
-    const out = "type A = (arg0: (...args: Array<any>) => Object) => string;";
+    const out =
+      "type A = ((arg0: ((...args: Array<any>) => Object)) => string);";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
@@ -200,7 +229,7 @@ describe("Exact types", () => {
   it("Transforms unnamed types", () => {
     const input = "type A = (string, string, string) => string";
     const out =
-      "type A = (arg0: string, arg1: string, arg2: string) => string;";
+      "type A = ((arg0: string, arg1: string, arg2: string) => string);";
     const collection = j(input);
 
     transformTypeAliases(collection, j);
@@ -609,7 +638,7 @@ describe("Declarations", () => {
     const input =
       "declare export function styled<T>(Component: T): (...styles: Array<any>) => T";
     const out =
-      "export declare function styled<T>(Component: T): (...styles: Array<any>) => T;";
+      "export declare function styled<T>(Component: T): ((...styles: Array<any>) => T);";
     const collection = j(input);
     [transformDeclaration].forEach(t => t(collection, j));
 
@@ -634,18 +663,17 @@ describe("Declarations", () => {
     expect(collection.toSource()).toEqual(out);
   });
 
-  it.only("Transforms class declarations without losing methods", () => {
+  it("Transforms class declarations without losing methods", () => {
     const input = `declare class Foo {
       foo(): string
       bar = (): string => {}
      }`;
     const out = `declare class Foo {
  foo(): string;
- bar: () => (arg0: string) => {};
+ bar: (() => ((arg0: string) => {}));
 }`;
     const collection = j(input);
     transformDeclaration(collection, j);
-    // allTransformations.forEach(t => t(collection, j));
 
     expect(collection.toSource()).toEqual(out);
   });
