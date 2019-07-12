@@ -1,3 +1,5 @@
+# DEPRECATED Check out: Khan Academy's Flow To Ts tool: https://github.com/khan/flow-to-ts
+
 # Intro
 
 Converts flow files to ts using jscodeshift. It isn't perfect, but should get you pretty close. There are a couple of fundamental differences that have to be manually converted.
